@@ -6,63 +6,104 @@
 </head>
 <body>
   <div class="container">
-    <h1>音声文字起こしアプリ</h1>
-    <p class="subtitle">録音した音声を文字起こしし、スプレッドシートに記録します</p>
 
-    <!-- 録音コントロール -->
-    <div class="recorder-section">
-      <div id="timer" class="timer">00:00</div>
-      <div class="controls">
-        <button id="btnRecord" class="btn btn-record" onclick="startRecording()">
-          <span class="icon">&#9679;</span> 録音開始
-        </button>
-        <button id="btnStop" class="btn btn-stop" onclick="stopRecording()" disabled>
-          <span class="icon">&#9632;</span> 録音停止
-        </button>
+    <!-- ===== 名前入力画面 ===== -->
+    <div id="nameScreen" class="screen">
+      <h1>音声ふりかえりアプリ</h1>
+      <p class="subtitle">名前を入力してはじめよう</p>
+      <div class="name-input-group">
+        <input id="nameInput" type="text" class="input-name" placeholder="なまえを入力" maxlength="20">
+        <button class="btn btn-submit" onclick="enterApp()">はじめる</button>
       </div>
-      <div id="visualizer-container" class="visualizer-container">
-        <canvas id="visualizer" width="400" height="80"></canvas>
+      <div id="nameList" class="name-list hidden">
+        <p class="name-list-label">または名前をえらぶ:</p>
+        <div id="nameButtons" class="name-buttons"></div>
       </div>
     </div>
 
-    <!-- プレビュー & 送信 -->
-    <div id="previewSection" class="preview-section hidden">
-      <h2>録音プレビュー</h2>
-      <audio id="audioPreview" controls></audio>
-      <div class="action-buttons">
-        <button id="btnSubmit" class="btn btn-submit" onclick="submitAudio()">
-          <span class="icon">&#9654;</span> 文字起こし &amp; 保存
-        </button>
-        <button class="btn btn-discard" onclick="discardRecording()">
-          やり直す
-        </button>
+    <!-- ===== メイン画面 ===== -->
+    <div id="mainScreen" class="screen hidden">
+      <div class="header-bar">
+        <span id="displayName" class="display-name"></span>
+        <button class="btn-text" onclick="changeName()">名前を変更</button>
       </div>
-    </div>
 
-    <!-- ローディング -->
-    <div id="loadingSection" class="loading-section hidden">
-      <div class="spinner"></div>
-      <p>音声を処理中です...</p>
-    </div>
-
-    <!-- 結果表示 -->
-    <div id="resultSection" class="result-section hidden">
-      <h2>文字起こし結果</h2>
-      <div id="transcriptText" class="transcript-box"></div>
-      <div class="result-meta">
-        <a id="fileLink" href="#" target="_blank">音声ファイルを開く</a>
-        <span class="separator">|</span>
-        <a id="sheetLink" href="#" target="_blank">スプレッドシートを開く</a>
+      <!-- タブ -->
+      <div class="tab-bar">
+        <button id="tabRecord" class="tab active" onclick="switchTab('record')">録音する</button>
+        <button id="tabReview" class="tab" onclick="switchTab('review')">ふりかえり</button>
       </div>
-      <button class="btn btn-record" onclick="resetUI()">
-        新しい録音を開始
-      </button>
-    </div>
 
-    <!-- エラー表示 -->
-    <div id="errorSection" class="error-section hidden">
-      <p id="errorMessage"></p>
-      <button class="btn btn-record" onclick="resetUI()">やり直す</button>
+      <!-- ===== 録音タブ ===== -->
+      <div id="recordTab" class="tab-content">
+        <div class="recorder-section">
+          <div id="timer" class="timer">00:00</div>
+          <div class="controls">
+            <button id="btnRecord" class="btn btn-record" onclick="startRecording()">
+              <span class="icon">&#9679;</span> 録音開始
+            </button>
+            <button id="btnStop" class="btn btn-stop" onclick="stopRecording()" disabled>
+              <span class="icon">&#9632;</span> 録音停止
+            </button>
+          </div>
+          <div id="visualizer-container" class="visualizer-container">
+            <canvas id="visualizer" width="400" height="80"></canvas>
+          </div>
+        </div>
+
+        <!-- プレビュー & 送信 -->
+        <div id="previewSection" class="preview-section hidden">
+          <h2>録音プレビュー</h2>
+          <audio id="audioPreview" controls></audio>
+          <div class="action-buttons">
+            <button id="btnSubmit" class="btn btn-submit" onclick="submitAudio()">
+              <span class="icon">&#9654;</span> 文字起こし &amp; 保存
+            </button>
+            <button class="btn btn-discard" onclick="discardRecording()">
+              やり直す
+            </button>
+          </div>
+        </div>
+
+        <!-- ローディング -->
+        <div id="loadingSection" class="loading-section hidden">
+          <div class="spinner"></div>
+          <p>音声を処理中です...</p>
+        </div>
+
+        <!-- 結果表示 -->
+        <div id="resultSection" class="result-section hidden">
+          <h2>文字起こし結果</h2>
+          <div id="transcriptText" class="transcript-box"></div>
+          <div class="result-meta">
+            <a id="fileLink" href="#" target="_blank">音声ファイルを開く</a>
+            <span class="separator">|</span>
+            <a id="sheetLink" href="#" target="_blank">スプレッドシートを開く</a>
+          </div>
+          <button class="btn btn-record" onclick="resetRecordUI()">
+            新しい録音を開始
+          </button>
+        </div>
+
+        <!-- エラー表示 -->
+        <div id="errorSection" class="error-section hidden">
+          <p id="errorMessage"></p>
+          <button class="btn btn-record" onclick="resetRecordUI()">やり直す</button>
+        </div>
+      </div>
+
+      <!-- ===== 振り返りタブ ===== -->
+      <div id="reviewTab" class="tab-content hidden">
+        <div id="reviewLoading" class="loading-section">
+          <div class="spinner"></div>
+          <p>ふりかえりを読み込み中...</p>
+        </div>
+        <div id="reviewEmpty" class="review-empty hidden">
+          <p>まだ録音がありません。</p>
+          <p class="subtitle">「録音する」タブから録音してみよう！</p>
+        </div>
+        <div id="reviewList" class="review-list hidden"></div>
+      </div>
     </div>
   </div>
 

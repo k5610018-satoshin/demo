@@ -2,6 +2,7 @@
 // ---------------------------------------------------------------------------
 // 状態管理
 // ---------------------------------------------------------------------------
+var currentName  = '';
 var mediaRecorder = null;
 var audioChunks  = [];
 var audioBlob    = null;
@@ -12,6 +13,159 @@ var analyser     = null;
 var animationId  = null;
 
 // ---------------------------------------------------------------------------
+// 初期化
+// ---------------------------------------------------------------------------
+window.addEventListener('DOMContentLoaded', function() {
+  // localStorage から名前を復元
+  var saved = localStorage.getItem('studentName');
+  if (saved) {
+    currentName = saved;
+    showMainScreen();
+  } else {
+    loadNameList();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 名前入力画面
+// ---------------------------------------------------------------------------
+function loadNameList() {
+  google.script.run
+    .withSuccessHandler(function(names) {
+      if (names && names.length > 0) {
+        var container = document.getElementById('nameButtons');
+        container.innerHTML = '';
+        names.forEach(function(n) {
+          var btn = document.createElement('button');
+          btn.className = 'btn btn-name';
+          btn.textContent = n;
+          btn.onclick = function() {
+            document.getElementById('nameInput').value = n;
+            enterApp();
+          };
+          container.appendChild(btn);
+        });
+        show('nameList');
+      }
+    })
+    .getStudentNames();
+}
+
+function enterApp() {
+  var name = document.getElementById('nameInput').value.trim();
+  if (!name) {
+    document.getElementById('nameInput').focus();
+    return;
+  }
+  currentName = name;
+  localStorage.setItem('studentName', name);
+  showMainScreen();
+}
+
+function showMainScreen() {
+  document.getElementById('displayName').textContent = currentName + ' さん';
+  hide('nameScreen');
+  show('mainScreen');
+}
+
+function changeName() {
+  localStorage.removeItem('studentName');
+  currentName = '';
+  hide('mainScreen');
+  document.getElementById('nameInput').value = '';
+  show('nameScreen');
+  loadNameList();
+}
+
+// ---------------------------------------------------------------------------
+// タブ切り替え
+// ---------------------------------------------------------------------------
+function switchTab(tab) {
+  if (tab === 'record') {
+    document.getElementById('tabRecord').classList.add('active');
+    document.getElementById('tabReview').classList.remove('active');
+    show('recordTab');
+    hide('reviewTab');
+  } else {
+    document.getElementById('tabReview').classList.add('active');
+    document.getElementById('tabRecord').classList.remove('active');
+    hide('recordTab');
+    show('reviewTab');
+    loadReviews();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 振り返り一覧
+// ---------------------------------------------------------------------------
+function loadReviews() {
+  show('reviewLoading');
+  hide('reviewEmpty');
+  hide('reviewList');
+
+  google.script.run
+    .withSuccessHandler(renderReviews)
+    .withFailureHandler(function(err) {
+      hide('reviewLoading');
+      show('reviewEmpty');
+      document.querySelector('#reviewEmpty p').textContent = 'エラー: ' + err.message;
+    })
+    .getRecordsByStudent(currentName);
+}
+
+function renderReviews(records) {
+  hide('reviewLoading');
+
+  if (!records || records.length === 0) {
+    show('reviewEmpty');
+    return;
+  }
+
+  var container = document.getElementById('reviewList');
+  container.innerHTML = '';
+
+  // 日付ごとにグループ化
+  var grouped = {};
+  var dateOrder = [];
+  records.forEach(function(r) {
+    if (!grouped[r.dateLabel]) {
+      grouped[r.dateLabel] = [];
+      dateOrder.push(r.dateLabel);
+    }
+    grouped[r.dateLabel].push(r);
+  });
+
+  dateOrder.forEach(function(dateLabel) {
+    // 日付ヘッダー
+    var dateHeader = document.createElement('div');
+    dateHeader.className = 'review-date-header';
+    dateHeader.textContent = dateLabel;
+    container.appendChild(dateHeader);
+
+    // その日の各録音カード
+    grouped[dateLabel].forEach(function(r) {
+      var card = document.createElement('div');
+      card.className = 'review-card';
+      card.innerHTML =
+        '<div class="review-card-time">' + escapeHtml(r.timeLabel) + '</div>' +
+        '<div class="review-card-text">' + escapeHtml(r.transcript) + '</div>' +
+        '<div class="review-card-actions">' +
+          '<a href="' + escapeHtml(r.fileUrl) + '" target="_blank" class="review-link">音声を聞く</a>' +
+        '</div>';
+      container.appendChild(card);
+    });
+  });
+
+  show('reviewList');
+}
+
+function escapeHtml(str) {
+  var div = document.createElement('div');
+  div.appendChild(document.createTextNode(str || ''));
+  return div.innerHTML;
+}
+
+// ---------------------------------------------------------------------------
 // 録音開始
 // ---------------------------------------------------------------------------
 function startRecording() {
@@ -20,7 +174,6 @@ function startRecording() {
       audioStream = stream;
       audioChunks = [];
 
-      // MediaRecorder (WebM/Opus が一般的)
       var options = { mimeType: 'audio/webm;codecs=opus' };
       if (!MediaRecorder.isTypeSupported(options.mimeType)) {
         options = { mimeType: 'audio/webm' };
@@ -39,19 +192,15 @@ function startRecording() {
         showPreview();
       };
 
-      mediaRecorder.start(250); // 250ms ごとにチャンク取得
+      mediaRecorder.start(250);
 
-      // UI 更新
       document.getElementById('btnRecord').disabled = true;
       document.getElementById('btnStop').disabled   = false;
       document.getElementById('timer').classList.add('recording');
-      hideAllSections();
+      hideRecordSections();
 
-      // タイマー開始
       startTime = Date.now();
       timerInterval = setInterval(updateTimer, 200);
-
-      // 音声ビジュアライザー
       setupVisualizer(stream);
     })
     .catch(function(err) {
@@ -87,13 +236,12 @@ function stopStream() {
 // ---------------------------------------------------------------------------
 function showPreview() {
   var url = URL.createObjectURL(audioBlob);
-  var audio = document.getElementById('audioPreview');
-  audio.src = url;
+  document.getElementById('audioPreview').src = url;
   show('previewSection');
 }
 
 // ---------------------------------------------------------------------------
-// 音声送信（文字起こし & スプレッドシート保存）
+// 音声送信
 // ---------------------------------------------------------------------------
 function submitAudio() {
   hide('previewSection');
@@ -101,9 +249,8 @@ function submitAudio() {
 
   var reader = new FileReader();
   reader.onloadend = function() {
-    // data:audio/webm;base64,XXXX... から Base64 部分だけ取得
-    var base64 = reader.result.split(',')[1];
-    var mimeType = audioBlob.type.split(';')[0]; // 'audio/webm'
+    var base64   = reader.result.split(',')[1];
+    var mimeType = audioBlob.type.split(';')[0];
     var fileName = 'recording_' + formatTimestamp(new Date()) + '.webm';
 
     google.script.run
@@ -112,7 +259,8 @@ function submitAudio() {
       .processAudio({
         audioBase64: base64,
         mimeType: mimeType,
-        fileName: fileName
+        fileName: fileName,
+        studentName: currentName
       });
   };
   reader.readAsDataURL(audioBlob);
@@ -123,7 +271,6 @@ function onSubmitSuccess(result) {
   document.getElementById('transcriptText').textContent = result.transcript;
   document.getElementById('fileLink').href = result.fileUrl;
 
-  // スプレッドシート URL を取得して表示
   google.script.run
     .withSuccessHandler(function(url) {
       document.getElementById('sheetLink').href = url;
@@ -139,7 +286,7 @@ function onSubmitError(err) {
 }
 
 // ---------------------------------------------------------------------------
-// 録音やり直し
+// 録音やり直し / リセット
 // ---------------------------------------------------------------------------
 function discardRecording() {
   audioBlob   = null;
@@ -148,19 +295,16 @@ function discardRecording() {
   resetTimer();
 }
 
-// ---------------------------------------------------------------------------
-// UI リセット
-// ---------------------------------------------------------------------------
-function resetUI() {
+function resetRecordUI() {
   audioBlob   = null;
   audioChunks = [];
-  hideAllSections();
+  hideRecordSections();
   resetTimer();
   document.getElementById('btnRecord').disabled = false;
   document.getElementById('btnStop').disabled   = true;
 }
 
-function hideAllSections() {
+function hideRecordSections() {
   hide('previewSection');
   hide('loadingSection');
   hide('resultSection');
@@ -174,8 +318,7 @@ function updateTimer() {
   var elapsed = Date.now() - startTime;
   var sec = Math.floor(elapsed / 1000) % 60;
   var min = Math.floor(elapsed / 60000);
-  document.getElementById('timer').textContent =
-    pad(min) + ':' + pad(sec);
+  document.getElementById('timer').textContent = pad(min) + ':' + pad(sec);
 }
 
 function resetTimer() {
@@ -192,8 +335,7 @@ function setupVisualizer(stream) {
   var ctx = new (window.AudioContext || window.webkitAudioContext)();
   analyser = ctx.createAnalyser();
   analyser.fftSize = 256;
-  var source = ctx.createMediaStreamSource(stream);
-  source.connect(analyser);
+  ctx.createMediaStreamSource(stream).connect(analyser);
 
   var canvas    = document.getElementById('visualizer');
   var canvasCtx = canvas.getContext('2d');
@@ -203,10 +345,8 @@ function setupVisualizer(stream) {
   function draw() {
     animationId = requestAnimationFrame(draw);
     analyser.getByteFrequencyData(dataArray);
-
     canvasCtx.fillStyle = '#fafafa';
     canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
-
     var barWidth = (canvas.width / bufferLen) * 2.5;
     var x = 0;
     for (var i = 0; i < bufferLen; i++) {

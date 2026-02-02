@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Helvetica Neue', Arial, 'Hiragino Sans', Meiryo, sans-serif;
+      background: #f5f7fa;
+      color: #333;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 32px 24px;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    }
+    h1 { font-size: 1.4rem; margin-bottom: 4px; }
+    .subtitle { font-size: 0.85rem; color: #888; margin-bottom: 28px; }
+    .section {
+      margin-bottom: 28px;
+      padding: 20px;
+      background: #f9f9f9;
+      border-radius: 12px;
+    }
+    .section h2 {
+      font-size: 1rem;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-ok { background: #c8e6c9; color: #2e7d32; }
+    .badge-ng { background: #ffcdd2; color: #c62828; }
+    .section p { font-size: 0.85rem; color: #666; margin-bottom: 12px; }
+    .input-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .input-row input {
+      flex: 1;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 0.9rem;
+    }
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-primary { background: #1e88e5; color: #fff; }
+    .btn-primary:hover { background: #1565c0; }
+    .btn-secondary { background: #43a047; color: #fff; }
+    .btn-secondary:hover { background: #2e7d32; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .status-text {
+      font-size: 0.8rem;
+      color: #888;
+      margin-top: 8px;
+    }
+    .status-text a { color: #1e88e5; }
+    .msg {
+      margin-top: 8px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+    }
+    .msg-success { background: #e8f5e9; color: #2e7d32; }
+    .msg-error { background: #ffebee; color: #c62828; }
+    .steps {
+      margin: 16px 0 0;
+      padding-left: 20px;
+      font-size: 0.85rem;
+      color: #555;
+    }
+    .steps li { margin-bottom: 6px; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>初期セットアップ</h1>
+    <p class="subtitle">管理者用の設定画面です。API キーとスプレッドシートを設定してください。</p>
+
+    <!-- Step 1: API Key -->
+    <div class="section">
+      <h2>
+        1. Speech-to-Text API キー
+        <span id="apiBadge" class="badge badge-ng">未設定</span>
+      </h2>
+      <p>Google Cloud の Speech-to-Text API キーを入力してください。</p>
+      <ol class="steps">
+        <li><a href="https://console.cloud.google.com/apis/library/speech.googleapis.com" target="_blank">Google Cloud Console</a> で Speech-to-Text API を有効化</li>
+        <li>「認証情報」→「認証情報を作成」→「API キー」を作成</li>
+        <li>下の入力欄に貼り付けて「保存」</li>
+      </ol>
+      <div class="input-row" style="margin-top: 12px;">
+        <input id="apiKeyInput" type="password" placeholder="AIza...">
+        <button class="btn btn-primary" onclick="saveKey()">保存</button>
+      </div>
+      <div id="apiMsg"></div>
+      <p id="apiStatus" class="status-text"></p>
+    </div>
+
+    <!-- Step 2: Spreadsheet -->
+    <div class="section">
+      <h2>
+        2. スプレッドシート
+        <span id="ssBadge" class="badge badge-ng">未作成</span>
+      </h2>
+      <p>既存のスプレッドシート ID を指定するか、空欄のまま「作成」を押すと自動作成します。</p>
+      <div class="input-row">
+        <input id="ssIdInput" type="text" placeholder="スプレッドシート ID（空欄で自動作成）">
+        <button class="btn btn-secondary" onclick="saveSS()">作成 / 設定</button>
+      </div>
+      <div id="ssMsg"></div>
+      <p id="ssStatus" class="status-text"></p>
+    </div>
+
+    <!-- Status summary -->
+    <div class="section" style="text-align: center; background: #e3f2fd;">
+      <p id="summaryText" style="color: #333; font-weight: 600;">設定を読み込み中...</p>
+    </div>
+  </div>
+
+  <script>
+    // --- 初期ロード ---
+    google.script.run.withSuccessHandler(renderStatus).getSetupStatus();
+
+    function renderStatus(s) {
+      // API Key
+      var apiBadge = document.getElementById('apiBadge');
+      var apiStatus = document.getElementById('apiStatus');
+      if (s.hasApiKey) {
+        apiBadge.textContent = '設定済み';
+        apiBadge.className = 'badge badge-ok';
+        apiStatus.textContent = 'キー: ' + s.apiKeyMasked;
+      } else {
+        apiBadge.textContent = '未設定';
+        apiBadge.className = 'badge badge-ng';
+        apiStatus.textContent = '';
+      }
+
+      // Spreadsheet
+      var ssBadge = document.getElementById('ssBadge');
+      var ssStatus = document.getElementById('ssStatus');
+      if (s.spreadsheetId) {
+        ssBadge.textContent = '設定済み';
+        ssBadge.className = 'badge badge-ok';
+        ssStatus.innerHTML = '<a href="' + s.spreadsheetUrl + '" target="_blank">スプレッドシートを開く</a>';
+      } else {
+        ssBadge.textContent = '未作成';
+        ssBadge.className = 'badge badge-ng';
+        ssStatus.textContent = '';
+      }
+
+      // Summary
+      var summary = document.getElementById('summaryText');
+      if (s.hasApiKey && s.spreadsheetId) {
+        summary.textContent = 'セットアップ完了！アプリを使用できます。';
+      } else {
+        summary.textContent = '上記の設定を完了してください。';
+      }
+    }
+
+    function saveKey() {
+      var key = document.getElementById('apiKeyInput').value.trim();
+      if (!key) return;
+      showMsg('apiMsg', '保存中...', '');
+      google.script.run
+        .withSuccessHandler(function() {
+          showMsg('apiMsg', '保存しました', 'msg-success');
+          document.getElementById('apiKeyInput').value = '';
+          google.script.run.withSuccessHandler(renderStatus).getSetupStatus();
+        })
+        .withFailureHandler(function(e) {
+          showMsg('apiMsg', 'エラー: ' + e.message, 'msg-error');
+        })
+        .saveApiKey(key);
+    }
+
+    function saveSS() {
+      var ssId = document.getElementById('ssIdInput').value.trim();
+      showMsg('ssMsg', ssId ? '検証中...' : '新規作成中...', '');
+      google.script.run
+        .withSuccessHandler(function(s) {
+          showMsg('ssMsg', '設定しました', 'msg-success');
+          renderStatus(s);
+        })
+        .withFailureHandler(function(e) {
+          showMsg('ssMsg', 'エラー: ' + e.message, 'msg-error');
+        })
+        .saveSpreadsheetId(ssId);
+    }
+
+    function showMsg(id, text, cls) {
+      var el = document.getElementById(id);
+      el.textContent = text;
+      el.className = cls ? 'msg ' + cls : 'msg';
+    }
+  </script>
+</body>
+</html>
