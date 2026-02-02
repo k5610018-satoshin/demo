@@ -1,0 +1,8 @@
+.git/**
+.gitignore
+.claspignore
+node_modules/**
+README.md
+setup.sh
+package.json
+package-lock.json
