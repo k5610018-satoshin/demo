@@ -1,0 +1,241 @@
+<script>
+// ---------------------------------------------------------------------------
+// 状態管理
+// ---------------------------------------------------------------------------
+var mediaRecorder = null;
+var audioChunks  = [];
+var audioBlob    = null;
+var audioStream  = null;
+var timerInterval = null;
+var startTime    = 0;
+var analyser     = null;
+var animationId  = null;
+
+// ---------------------------------------------------------------------------
+// 録音開始
+// ---------------------------------------------------------------------------
+function startRecording() {
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(function(stream) {
+      audioStream = stream;
+      audioChunks = [];
+
+      // MediaRecorder (WebM/Opus が一般的)
+      var options = { mimeType: 'audio/webm;codecs=opus' };
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options = { mimeType: 'audio/webm' };
+      }
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options = {};
+      }
+      mediaRecorder = new MediaRecorder(stream, options);
+
+      mediaRecorder.ondataavailable = function(e) {
+        if (e.data.size > 0) audioChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = function() {
+        audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+        showPreview();
+      };
+
+      mediaRecorder.start(250); // 250ms ごとにチャンク取得
+
+      // UI 更新
+      document.getElementById('btnRecord').disabled = true;
+      document.getElementById('btnStop').disabled   = false;
+      document.getElementById('timer').classList.add('recording');
+      hideAllSections();
+
+      // タイマー開始
+      startTime = Date.now();
+      timerInterval = setInterval(updateTimer, 200);
+
+      // 音声ビジュアライザー
+      setupVisualizer(stream);
+    })
+    .catch(function(err) {
+      showError('マイクへのアクセスが許可されませんでした: ' + err.message);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// 録音停止
+// ---------------------------------------------------------------------------
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+  stopStream();
+  clearInterval(timerInterval);
+  cancelAnimationFrame(animationId);
+
+  document.getElementById('btnRecord').disabled = false;
+  document.getElementById('btnStop').disabled   = true;
+  document.getElementById('timer').classList.remove('recording');
+}
+
+function stopStream() {
+  if (audioStream) {
+    audioStream.getTracks().forEach(function(t) { t.stop(); });
+    audioStream = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// プレビュー表示
+// ---------------------------------------------------------------------------
+function showPreview() {
+  var url = URL.createObjectURL(audioBlob);
+  var audio = document.getElementById('audioPreview');
+  audio.src = url;
+  show('previewSection');
+}
+
+// ---------------------------------------------------------------------------
+// 音声送信（文字起こし & スプレッドシート保存）
+// ---------------------------------------------------------------------------
+function submitAudio() {
+  hide('previewSection');
+  show('loadingSection');
+
+  var reader = new FileReader();
+  reader.onloadend = function() {
+    // data:audio/webm;base64,XXXX... から Base64 部分だけ取得
+    var base64 = reader.result.split(',')[1];
+    var mimeType = audioBlob.type.split(';')[0]; // 'audio/webm'
+    var fileName = 'recording_' + formatTimestamp(new Date()) + '.webm';
+
+    google.script.run
+      .withSuccessHandler(onSubmitSuccess)
+      .withFailureHandler(onSubmitError)
+      .processAudio({
+        audioBase64: base64,
+        mimeType: mimeType,
+        fileName: fileName
+      });
+  };
+  reader.readAsDataURL(audioBlob);
+}
+
+function onSubmitSuccess(result) {
+  hide('loadingSection');
+  document.getElementById('transcriptText').textContent = result.transcript;
+  document.getElementById('fileLink').href = result.fileUrl;
+
+  // スプレッドシート URL を取得して表示
+  google.script.run
+    .withSuccessHandler(function(url) {
+      document.getElementById('sheetLink').href = url;
+    })
+    .getSpreadsheetUrl();
+
+  show('resultSection');
+}
+
+function onSubmitError(err) {
+  hide('loadingSection');
+  showError('処理中にエラーが発生しました: ' + err.message);
+}
+
+// ---------------------------------------------------------------------------
+// 録音やり直し
+// ---------------------------------------------------------------------------
+function discardRecording() {
+  audioBlob   = null;
+  audioChunks = [];
+  hide('previewSection');
+  resetTimer();
+}
+
+// ---------------------------------------------------------------------------
+// UI リセット
+// ---------------------------------------------------------------------------
+function resetUI() {
+  audioBlob   = null;
+  audioChunks = [];
+  hideAllSections();
+  resetTimer();
+  document.getElementById('btnRecord').disabled = false;
+  document.getElementById('btnStop').disabled   = true;
+}
+
+function hideAllSections() {
+  hide('previewSection');
+  hide('loadingSection');
+  hide('resultSection');
+  hide('errorSection');
+}
+
+// ---------------------------------------------------------------------------
+// タイマー
+// ---------------------------------------------------------------------------
+function updateTimer() {
+  var elapsed = Date.now() - startTime;
+  var sec = Math.floor(elapsed / 1000) % 60;
+  var min = Math.floor(elapsed / 60000);
+  document.getElementById('timer').textContent =
+    pad(min) + ':' + pad(sec);
+}
+
+function resetTimer() {
+  document.getElementById('timer').textContent = '00:00';
+  document.getElementById('timer').classList.remove('recording');
+}
+
+function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+// ---------------------------------------------------------------------------
+// 音声ビジュアライザー
+// ---------------------------------------------------------------------------
+function setupVisualizer(stream) {
+  var ctx = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = ctx.createAnalyser();
+  analyser.fftSize = 256;
+  var source = ctx.createMediaStreamSource(stream);
+  source.connect(analyser);
+
+  var canvas    = document.getElementById('visualizer');
+  var canvasCtx = canvas.getContext('2d');
+  var bufferLen = analyser.frequencyBinCount;
+  var dataArray = new Uint8Array(bufferLen);
+
+  function draw() {
+    animationId = requestAnimationFrame(draw);
+    analyser.getByteFrequencyData(dataArray);
+
+    canvasCtx.fillStyle = '#fafafa';
+    canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+    var barWidth = (canvas.width / bufferLen) * 2.5;
+    var x = 0;
+    for (var i = 0; i < bufferLen; i++) {
+      var barHeight = (dataArray[i] / 255) * canvas.height;
+      canvasCtx.fillStyle = 'rgba(229,57,53,' + (0.3 + dataArray[i] / 255 * 0.7) + ')';
+      canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+      x += barWidth + 1;
+    }
+  }
+  draw();
+}
+
+// ---------------------------------------------------------------------------
+// ヘルパー
+// ---------------------------------------------------------------------------
+function show(id) { document.getElementById(id).classList.remove('hidden'); }
+function hide(id) { document.getElementById(id).classList.add('hidden'); }
+
+function showError(msg) {
+  document.getElementById('errorMessage').textContent = msg;
+  show('errorSection');
+}
+
+function formatTimestamp(d) {
+  return d.getFullYear()
+    + pad(d.getMonth() + 1)
+    + pad(d.getDate()) + '_'
+    + pad(d.getHours())
+    + pad(d.getMinutes())
+    + pad(d.getSeconds());
+}
+</script>

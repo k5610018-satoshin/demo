@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('Stylesheet') ?>
+</head>
+<body>
+  <div class="container">
+    <h1>音声文字起こしアプリ</h1>
+    <p class="subtitle">録音した音声を文字起こしし、スプレッドシートに記録します</p>
+
+    <!-- 録音コントロール -->
+    <div class="recorder-section">
+      <div id="timer" class="timer">00:00</div>
+      <div class="controls">
+        <button id="btnRecord" class="btn btn-record" onclick="startRecording()">
+          <span class="icon">&#9679;</span> 録音開始
+        </button>
+        <button id="btnStop" class="btn btn-stop" onclick="stopRecording()" disabled>
+          <span class="icon">&#9632;</span> 録音停止
+        </button>
+      </div>
+      <div id="visualizer-container" class="visualizer-container">
+        <canvas id="visualizer" width="400" height="80"></canvas>
+      </div>
+    </div>
+
+    <!-- プレビュー & 送信 -->
+    <div id="previewSection" class="preview-section hidden">
+      <h2>録音プレビュー</h2>
+      <audio id="audioPreview" controls></audio>
+      <div class="action-buttons">
+        <button id="btnSubmit" class="btn btn-submit" onclick="submitAudio()">
+          <span class="icon">&#9654;</span> 文字起こし &amp; 保存
+        </button>
+        <button class="btn btn-discard" onclick="discardRecording()">
+          やり直す
+        </button>
+      </div>
+    </div>
+
+    <!-- ローディング -->
+    <div id="loadingSection" class="loading-section hidden">
+      <div class="spinner"></div>
+      <p>音声を処理中です...</p>
+    </div>
+
+    <!-- 結果表示 -->
+    <div id="resultSection" class="result-section hidden">
+      <h2>文字起こし結果</h2>
+      <div id="transcriptText" class="transcript-box"></div>
+      <div class="result-meta">
+        <a id="fileLink" href="#" target="_blank">音声ファイルを開く</a>
+        <span class="separator">|</span>
+        <a id="sheetLink" href="#" target="_blank">スプレッドシートを開く</a>
+      </div>
+      <button class="btn btn-record" onclick="resetUI()">
+        新しい録音を開始
+      </button>
+    </div>
+
+    <!-- エラー表示 -->
+    <div id="errorSection" class="error-section hidden">
+      <p id="errorMessage"></p>
+      <button class="btn btn-record" onclick="resetUI()">やり直す</button>
+    </div>
+  </div>
+
+  <?!= include('JavaScript') ?>
+</body>
+</html>
